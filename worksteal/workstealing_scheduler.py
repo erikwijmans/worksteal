@@ -20,8 +20,10 @@ class WorkStealingScheduler(object):
     """
 
     def __init__(self, duplication_ratio: int = 1):
-        self.request_queue = mp.Queue()
-        self.done_event = mp.Event()
+        self.mp_ctx = mp.get_context()
+
+        self.request_queue = self.mp_ctx.Queue()
+        self.done_event = self.mp_ctx.Event()
         self.done_event.clear()
 
         self.resource_queue = []
@@ -37,7 +39,7 @@ class WorkStealingScheduler(object):
         _id = len(self.task_by_worker)
         self.task_by_worker[_id] = []
 
-        self.response_queue_by_worker[_id] = mp.Queue()
+        self.response_queue_by_worker[_id] = self.mp_ctx.Queue()
 
         return TaskQueue(
             _id, self.request_queue, self.response_queue_by_worker[_id]
@@ -116,7 +118,7 @@ class WorkStealingScheduler(object):
     def launch_scheduler(self):
         assert self.sched is None
 
-        self.sched = mp.Process(target=self._sched_loop, args=())
+        self.sched = self.mp_ctx.Process(target=self._sched_loop, args=())
         self.sched.deamon = True
         self.sched.start()
 
