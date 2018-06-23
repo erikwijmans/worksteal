@@ -1,6 +1,7 @@
 import multiprocessing as mp
 from .task_queue import TaskQueue
 import queue
+import time
 
 
 class WorkStealingScheduler(object):
@@ -131,6 +132,9 @@ class WorkStealingScheduler(object):
                     self.task_by_resource[resource_id] = [task]
 
                 new_tasks = True
+
+                if self.add_queue.empty():
+                    time.sleep(1)
 
             if new_tasks:
                 while len(self.outstanding_request_queue) > 0:
