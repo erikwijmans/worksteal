@@ -43,6 +43,7 @@ class WorkStealingScheduler(object):
     def add_worker(self):
         _id = len(self.task_by_worker)
         self.task_by_worker[_id] = []
+        self.resource_by_worker[_id] = None
 
         self.response_queue_by_worker[_id] = self.mp_ctx.Queue()
 
@@ -61,20 +62,37 @@ class WorkStealingScheduler(object):
             self.add_queue.put((resource_id, task))
 
     def _attempt_steal(self, _id):
-
-        # Find the worker with the most amount of undone work to steal from
-        largest_undone_amount = 0
+        # Attempt to steal from a worker who has the same resource we do
         to_steal_id = None
-        for k, v in self.task_by_worker.items():
-            if len(v) > largest_undone_amount:
-                largest_undone_amount = len(v)
-                to_steal_id = k
+        largest_undone_amount = 0
+        for k, v in self.resource_by_worker.items():
+            if v == self.resource_by_worker[_id]:
+                if len(self.task_by_worker[k]) > largest_undone_amount:
+                    largest_undone_amount = len(self.task_by_worker[k])
+                    to_steal_id = k
 
         # Steal half the work if possible.  Otherwise leave steal_threshold in the queue
         steal_amount = min(
             largest_undone_amount // 2,
             largest_undone_amount - self.steal_threshold
         )
+
+        # We can't steal from them :( So lets steal from someone else!
+        if steal_amount <= 0:
+            to_steal_id = None
+            largest_undone_amount = 0
+
+            # Find the worker with the most amount of undone work to steal from
+            for k, v in self.task_by_worker.items():
+                if len(v) > largest_undone_amount:
+                    largest_undone_amount = len(v)
+                    to_steal_id = k
+
+            # Steal half the work if possible.  Otherwise leave steal_threshold in the queue
+            steal_amount = min(
+                largest_undone_amount // 2,
+                largest_undone_amount - self.steal_threshold
+            )
 
         # If there is not enough work to steal, we simply return
         if steal_amount <= 0:
@@ -121,12 +139,19 @@ class WorkStealingScheduler(object):
 
                     # This worker has nothing left to do!
                     if len(self.task_by_worker[_id]) == 0:
-                        # Assign them the next resource in the queue
+                        # Assign them the next resource in the queue, if there is new work for the resource
+                        # they already have, give them that!
                         if len(self.resource_queue) > 0:
-                            resource = self.resource_queue.pop()
-                            self.task_by_worker[
-                                _id
-                            ] = self.task_by_resource.pop(resource)
+                            if (self.resource_by_worker[_id] in
+                                    self.resource_queue):
+                                resource = self.resource_by_worker[_id]
+                                self.resource_queue.remove(resource)
+                            else:
+                                resource = self.resource_queue.pop()
+
+                            self.task_by_worker[_id] = (
+                                self.task_by_resource.pop(resource)
+                            )
                             self.resource_by_worker[_id] = resource
                         # There are no more unassigned resources, so we need to steal work!
                         else:
