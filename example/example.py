@@ -43,8 +43,11 @@ def main():
         (j, (j, 'hi {}'.format(j), i + 1)) for i in range(2) for j in range(2)
     ] + [(11, (11, 'final', 1)) for _ in range(10)]
 
+    scheduler.add_event.set()
     for t in tasks:
         scheduler.add_task(*t)
+
+    scheduler.add_event.clear()
 
     for _ in range(len(tasks)):
         _ = output_queue.get()

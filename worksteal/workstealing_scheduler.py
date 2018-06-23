@@ -25,7 +25,9 @@ class WorkStealingScheduler(object):
 
         self.request_queue = self.mp_ctx.Queue()
         self.done_event = self.mp_ctx.Event()
+        self.add_event = self.mp_ctx.Event()
         self.done_event.clear()
+        self.add_event.clear()
 
         self.resource_queue = []
         self.task_by_resource = {}
@@ -98,47 +100,45 @@ class WorkStealingScheduler(object):
                     v.put(None)
                 break
 
-            try:
-                _id = self.request_queue.get(timeout=1)
-
-                # This worker has nothing left to do!
-                if len(self.task_by_worker[_id]) == 0:
-                    # Assign them the next resource in the queue
-                    if len(self.resource_queue) > 0:
-                        resource = self.resource_queue.pop()
-                        self.task_by_worker[_id] = self.task_by_resource.pop(
-                            resource
-                        )
-                        self.resource_by_worker[_id] = resource
-                    # There are no more unassigned resources, so we need to steal work!
+            if self.add_event.is_set() or not self.add_queue.empty():
+                try:
+                    resource_id, task = self.add_queue.get(timeout=1)
+                    if resource_id in self.task_by_resource:
+                        self.task_by_resource[resource_id].append(task)
                     else:
-                        self._attempt_steal(_id)
+                        self.resource_queue.append(resource_id)
+                        self.task_by_resource[resource_id] = [task]
 
-                task = self._pop_task_queue(_id)
-                if task is not None:
-                    self.response_queue_by_worker[_id].put(task)
-                else:
-                    self.outstanding_request_queue.append(_id)
-            except queue.Empty:
-                pass
+                    while len(self.outstanding_request_queue) > 0:
+                        self.request_queue.put(
+                            self.outstanding_request_queue.pop()
+                        )
+                except queue.Empty:
+                    pass
+            else:
+                try:
+                    _id = self.request_queue.get(timeout=1)
 
-            new_tasks = False
-            while not self.add_queue.empty():
-                resource_id, task = self.add_queue.get_nowait()
-                if resource_id in self.task_by_resource:
-                    self.task_by_resource[resource_id].append(task)
-                else:
-                    self.resource_queue.append(resource_id)
-                    self.task_by_resource[resource_id] = [task]
+                    # This worker has nothing left to do!
+                    if len(self.task_by_worker[_id]) == 0:
+                        # Assign them the next resource in the queue
+                        if len(self.resource_queue) > 0:
+                            resource = self.resource_queue.pop()
+                            self.task_by_worker[
+                                _id
+                            ] = self.task_by_resource.pop(resource)
+                            self.resource_by_worker[_id] = resource
+                        # There are no more unassigned resources, so we need to steal work!
+                        else:
+                            self._attempt_steal(_id)
 
-                new_tasks = True
-
-                if self.add_queue.empty():
-                    time.sleep(1)
-
-            if new_tasks:
-                while len(self.outstanding_request_queue) > 0:
-                    self.request_queue.put(self.outstanding_request_queue.pop())
+                    task = self._pop_task_queue(_id)
+                    if task is not None:
+                        self.response_queue_by_worker[_id].put(task)
+                    else:
+                        self.outstanding_request_queue.append(_id)
+                except queue.Empty:
+                    pass
 
     def launch_scheduler(self):
         assert self.sched is None
