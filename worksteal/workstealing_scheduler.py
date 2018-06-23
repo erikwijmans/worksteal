@@ -31,8 +31,10 @@ class WorkStealingScheduler(object):
         self.task_by_worker = {}
         self.resource_by_worker = {}
         self.response_queue_by_worker = {}
+        self.outstanding_request_queue = []
 
         self.sched = None
+        self.add_queue = None
         self.steal_threshold = 2 * duplication_ratio
 
     def add_worker(self):
@@ -46,11 +48,14 @@ class WorkStealingScheduler(object):
         )
 
     def add_task(self, resource_id, task):
-        if resource_id in self.task_by_resource:
-            self.task_by_resource[resource_id].append(task)
+        if self.sched is None:
+            if resource_id in self.task_by_resource:
+                self.task_by_resource[resource_id].append(task)
+            else:
+                self.resource_queue.append(resource_id)
+                self.task_by_resource[resource_id] = [task]
         else:
-            self.resource_queue.append(resource_id)
-            self.task_by_resource[resource_id] = [task]
+            self.add_queue.put((resource_id, task))
 
     def _attempt_steal(self, _id):
 
@@ -80,9 +85,9 @@ class WorkStealingScheduler(object):
     def _pop_task_queue(self, _id):
         if len(self.task_by_worker[_id]) > 0:
             task = self.task_by_worker[_id].pop()
-            self.response_queue_by_worker[_id].put(task)
+            return task
         else:
-            self.response_queue_by_worker[_id].put(None)
+            return None
 
     def _sched_loop(self):
         while True:
@@ -104,20 +109,37 @@ class WorkStealingScheduler(object):
                             resource
                         )
                         self.resource_by_worker[_id] = resource
-                        self._pop_task_queue(_id)
-
                     # There are no more unassigned resources, so we need to steal work!
                     else:
                         self._attempt_steal(_id)
 
-                self._pop_task_queue(_id)
-
+                task = self._pop_task_queue(_id)
+                if task is not None:
+                    self.response_queue_by_worker[_id].put(task)
+                else:
+                    self.outstanding_request_queue.append(_id)
             except queue.Empty:
                 pass
+
+            new_tasks = False
+            while not self.add_queue.empty():
+                resource_id, task = self.add_queue.get_nowait()
+                if resource_id in self.task_by_resource:
+                    self.task_by_resource[resource_id].append(task)
+                else:
+                    self.resource_queue.append(resource_id)
+                    self.task_by_resource[resource_id] = [task]
+
+                new_tasks = True
+
+            if new_tasks:
+                while len(self.outstanding_request_queue) > 0:
+                    self.request_queue.put(self.outstanding_request_queue.pop())
 
     def launch_scheduler(self):
         assert self.sched is None
 
+        self.add_queue = self.mp_ctx.Queue()
         self.sched = self.mp_ctx.Process(target=self._sched_loop, args=())
         self.sched.deamon = True
         self.sched.start()
