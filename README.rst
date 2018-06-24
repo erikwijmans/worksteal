@@ -8,4 +8,5 @@ Installation
 ============
 
 Intalling with pip ::
+
     pip install git+git://github.com/erikwijmans/worksteal.git#egg=worksteal
