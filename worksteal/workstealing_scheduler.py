@@ -121,11 +121,20 @@ class WorkStealingScheduler(object):
             if self.add_event.is_set() or not self.add_queue.empty():
                 try:
                     resource_id, task = self.add_queue.get(timeout=1)
-                    if resource_id in self.task_by_resource:
-                        self.task_by_resource[resource_id].append(task)
-                    else:
-                        self.resource_queue.append(resource_id)
-                        self.task_by_resource[resource_id] = [task]
+
+                    found_worker = False
+                    for k, v in self.resource_by_worker.items():
+                        if v == resource_id:
+                            self.task_by_worker[k].append(task)
+                            found_worker = True
+                            break
+
+                    if not found_worker:
+                        if resource_id in self.task_by_resource:
+                            self.task_by_resource[resource_id].append(task)
+                        else:
+                            self.resource_queue.append(resource_id)
+                            self.task_by_resource[resource_id] = [task]
 
                     while len(self.outstanding_request_queue) > 0:
                         self.request_queue.put(
