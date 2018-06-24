@@ -7,6 +7,5 @@ expensive to duplicate
 Installation
 ============
 
-```
+.. code:: bash
     pip install git+git://github.com/erikwijmans/worksteal.git#egg=worksteal
-```
