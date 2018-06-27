@@ -20,8 +20,8 @@ class WorkStealingScheduler(object):
         less preferable.
     """
 
-    def __init__(self, duplication_ratio: int = 1):
-        self.mp_ctx = mp.get_context()
+    def __init__(self, duplication_ratio: int = 1, mp_ctx=mp.get_context()):
+        self.mp_ctx = mp_ctx
 
         self.request_queue = self.mp_ctx.Queue()
         self.done_event = self.mp_ctx.Event()
